@@ -1,0 +1,9 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+storage/experiments.db
+storage/output/
+*.mp4
+*.wav
+*.ass
