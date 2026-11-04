@@ -83,4 +83,4 @@ def test_full_pipeline_run_three_variants(test_setup):
             links = session.execute(
                 select(RenderAsset).where(RenderAsset.render_id == render.id)
             ).scalars().all()
-            assert len(links) == 3  # background_video, voiceover, subtitle_font
+            assert len(links) in (3, 4)  # background_video, voiceover, subtitle_font, (optional background_music)

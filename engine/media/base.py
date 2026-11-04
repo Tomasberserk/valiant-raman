@@ -48,6 +48,7 @@ class TranscriptionProvider(ABC):
         self,
         audio_path: Path,
         reference_text: Optional[str] = None,
+        duration_seconds: Optional[float] = None,
     ) -> List[WordTimestamp]:
         """Produce word timestamps for the given audio."""
         pass
@@ -64,6 +65,8 @@ class Compositor(ABC):
         subtitles_path: Optional[Path],
         output_path: Path,
         duration_seconds: float,
+        bgm_path: Optional[Path] = None,
+        bgm_volume: float = 0.12,
     ) -> Path:
         """Combine background visual, audio narration, and subtitles into a final video file."""
         pass

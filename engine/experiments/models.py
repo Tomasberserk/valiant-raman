@@ -59,12 +59,25 @@ class Experiment(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=now_utc, onupdate=now_utc)
 
+    source_concept_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("concepts.id", ondelete="SET NULL"), nullable=True
+    )
+    series_id: Mapped[Optional[str]] = mapped_column(
+        String(36), ForeignKey("series.id", ondelete="SET NULL"), nullable=True
+    )
+
     # Relationships
     hypotheses: Mapped[List["Hypothesis"]] = relationship(
         "Hypothesis", back_populates="experiment", cascade="all, delete-orphan"
     )
     runs: Mapped[List["ExperimentRun"]] = relationship(
         "ExperimentRun", back_populates="experiment", cascade="all, delete-orphan"
+    )
+    source_concept: Mapped[Optional["Concept"]] = relationship(  # type: ignore[name-defined]
+        "Concept", back_populates="experiments", foreign_keys=[source_concept_id]
+    )
+    series: Mapped[Optional["Series"]] = relationship(  # type: ignore[name-defined]
+        "Series", back_populates="experiments", foreign_keys=[series_id]
     )
 
 
@@ -271,3 +284,7 @@ class Metric(Base):
 
     # Relationships
     publication: Mapped["Publication"] = relationship("Publication", back_populates="metrics")
+
+
+# Ensure creative models are registered in SQLAlchemy registry for cross-table relationships
+import engine.creative.models  # noqa: E402, F401

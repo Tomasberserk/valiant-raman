@@ -114,3 +114,29 @@ def test_deterministic_scriptwriter_variants():
         plan=plans[0],
     )
     assert scripts[0].model_dump() == script_a_second_call.model_dump()
+
+
+def test_custom_hook_text_priority_and_fallback():
+    """Verify plan.parameters['hook_text'] takes priority, and fallback preserves historical behavior."""
+    provider = DummyScriptProvider()
+
+    # Case 1: Custom hook_text provided in parameters
+    custom_plan = VariantPlan(
+        variant_code="A",
+        hook_type=HookType.QUESTION,
+        topic="la materia oscura",
+        parameters={"hook_text": "¿Por qué el 85% del universo es completamente invisible?"},
+    )
+    script_custom = provider.generate_script("Test hypo", custom_plan)
+    assert script_custom.hook == "¿Por qué el 85% del universo es completamente invisible?"
+
+    # Case 2: No custom hook provided in parameters (historical fallback preserved)
+    fallback_plan = VariantPlan(
+        variant_code="B",
+        hook_type=HookType.STATEMENT,
+        topic="la materia oscura",
+        parameters={},
+    )
+    script_fallback = provider.generate_script("Test hypo", fallback_plan)
+    assert "Este es el hecho más impactante y comprobado sobre la materia oscura" in script_fallback.hook
+

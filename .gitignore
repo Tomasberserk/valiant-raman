@@ -2,8 +2,12 @@ __pycache__/
 *.py[cod]
 *$py.class
 .pytest_cache/
-storage/experiments.db
-storage/output/
+storage/
+scratch/
+stage10_evidence/
+stage11_evidence/
 *.mp4
 *.wav
 *.ass
+*.png
+scratch_video_audit.json

@@ -1,9 +1,18 @@
 """Command Line Interface for the Short-Form Content Engine."""
 
 from pathlib import Path
+import sys
+from typing import Optional
 import typer
 from rich.console import Console
 from rich.table import Table
+
+from engine.director.entrypoint import (
+    ProductionEntryInput,
+    format_error_json,
+    format_result_json,
+    run_production,
+)
 
 from config.settings import ASSETS_DIR, DB_PATH, OUTPUT_DIR, settings
 from engine.experiments.models import RenderAsset
@@ -274,6 +283,104 @@ def list_summary():
             for r in run.renders:
                 status_icon = "[OK]" if r.qa_passed else "[X]"
                 console.print(f"      - [{ 'green' if r.qa_passed else 'red' }]{status_icon}[/] Variant {r.variant.variant_code} ({r.width}x{r.height}, {r.duration_seconds}s) -> {r.file_path}")
+
+
+@app.command(name="studio")
+def studio_cmd(
+    host: str = typer.Option("127.0.0.1", "--host", "-h", help="Host interface to bind"),
+    port: int = typer.Option(8000, "--port", "-p", help="Port to listen on"),
+):
+    """Launch the Creative Workspace Studio local web interface."""
+    import uvicorn
+    console.print(f"[bold green]Starting Creative Workspace Studio at http://{host}:{port}[/bold green]")
+    uvicorn.run("web.app:create_app", factory=True, host=host, port=port, reload=False)
+
+
+@app.command(name="produce")
+def produce_cmd(
+    dossier_path: Optional[Path] = typer.Option(
+        None, "--dossier-path", "-d", help="Path to sealed FactDossier JSON file"
+    ),
+    request_file: Optional[Path] = typer.Option(
+        None, "--request-file", "-f", help="Path to full ProductionRequest JSON file"
+    ),
+    request_id: Optional[str] = typer.Option(
+        None, "--request-id", "-r", help="Unique client idempotency key"
+    ),
+    topic: Optional[str] = typer.Option(
+        None, "--topic", "-t", help="Production topic (defaults to dossier topic)"
+    ),
+    hook_strategy: str = typer.Option(
+        "question", "--hook-strategy", help="Dramatic hook strategy (question, statement, surprise)"
+    ),
+    tone: str = typer.Option(
+        "curious_informative", "--tone", help="Editorial tone (curious_informative, dramatic, etc.)"
+    ),
+    target_lufs: float = typer.Option(
+        -14.0, "--target-lufs", help="Target integrated loudness LUFS"
+    ),
+    max_regenerations: int = typer.Option(
+        2, "--max-regenerations", help="Max surgical regenerations"
+    ),
+    max_retries: int = typer.Option(
+        2, "--max-retries", help="Max transient scene retries"
+    ),
+    max_repairs: int = typer.Option(
+        1, "--max-repairs", help="Max audio loudness repairs"
+    ),
+    output_dir: Optional[Path] = typer.Option(
+        None, "--output-dir", "-o", help="Base directory for job persistence"
+    ),
+    as_json: bool = typer.Option(
+        False, "--json", help="Output pure raw JSON to stdout (for automation/CI)"
+    ),
+):
+    """Execute end-to-end video production via ProductionDirector (Stage 12D.3)."""
+    input_args = ProductionEntryInput(
+        request_file=request_file,
+        dossier_path=dossier_path,
+        request_id=request_id,
+        topic=topic,
+        hook_strategy=hook_strategy,
+        tone=tone,
+        target_lufs=target_lufs,
+        max_regenerations=max_regenerations,
+        max_retries=max_retries,
+        max_repairs=max_repairs,
+        output_dir=output_dir,
+    )
+
+    exit_code, result, err_msg = run_production(input_args)
+
+    if as_json:
+        # Guarantee 100% clean, raw JSON output on stdout (parseable by json.loads)
+        if result is not None:
+            sys.stdout.write(format_result_json(result) + "\n")
+        else:
+            sys.stdout.write(format_error_json(err_msg or "Unknown error", exit_code) + "\n")
+        sys.stdout.flush()
+        raise typer.Exit(code=exit_code)
+
+    # Human-readable / Rich terminal output
+    if result is None:
+        console.print(f"[bold red]Validation Error:[/bold red] {err_msg}")
+        raise typer.Exit(code=exit_code)
+
+    if exit_code == 0:
+        console.print("[bold green]Production Completed & Certified Successfully![/bold green]")
+        console.print(f"  Job ID:       [cyan]{result.job_id}[/cyan]")
+        console.print(f"  Request ID:   [cyan]{result.request_id}[/cyan]")
+        console.print(f"  Master MP4:   [green]{result.certified_master_path}[/green]")
+        console.print(f"  SHA-256:      [dim]{result.master_sha256}[/dim]")
+        console.print(f"  Duration:     {result.total_physical_duration_sec:.1f}s")
+        console.print(f"  Manifest:     {result.manifest_path}")
+    else:
+        console.print(f"[bold red]Production Failed ({result.status}):[/bold red] {result.error_summary}")
+        console.print(f"  Job ID:       [cyan]{result.job_id}[/cyan]")
+        console.print(f"  Request ID:   [cyan]{result.request_id}[/cyan]")
+        console.print(f"  Exit Code:    {exit_code}")
+
+    raise typer.Exit(code=exit_code)
 
 
 if __name__ == "__main__":

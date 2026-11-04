@@ -32,8 +32,9 @@ class ExperimentRepository:
         self.SessionFactory = sessionmaker(bind=self.engine, expire_on_commit=False)
 
     def init_db(self) -> None:
-        """Create all tables in SQLite."""
-        Base.metadata.create_all(self.engine)
+        """Create all tables and run idempotent migrations in SQLite."""
+        from engine.creative.migrations import migrate_db
+        migrate_db(self.engine)
 
     @contextmanager
     def get_session(self) -> Generator[Session, None, None]:
@@ -140,6 +141,31 @@ class ExperimentRepository:
                 session.flush()
                 session.refresh(run)
             return run
+
+    def update_run(
+        self,
+        run_id: str,
+        status: Optional[str] = None,
+        pipeline_version: Optional[str] = None,
+        config_hash: Optional[str] = None,
+        error_message: Optional[str] = None,
+    ) -> Optional[ExperimentRun]:
+        """Update attributes of an existing experiment run."""
+        with self.get_session() as session:
+            run = session.get(ExperimentRun, run_id)
+            if run:
+                if status is not None:
+                    run.status = status
+                if pipeline_version is not None:
+                    run.pipeline_version = pipeline_version
+                if config_hash is not None:
+                    run.config_hash = config_hash
+                if error_message is not None:
+                    run.error_message = error_message
+                session.flush()
+                session.refresh(run)
+            return run
+
 
     def register_asset(
         self,
