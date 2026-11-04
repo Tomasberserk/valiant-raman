@@ -169,11 +169,22 @@ FACT_CATALOG: List[FactCapsule] = [
 ]
 
 
+class KnowledgeNotFoundError(Exception):
+    """Raised when no verified factual capsule exists for a topic in KnowledgeBank."""
+    pass
+
+
 class KnowledgeBank:
     """Lookup and retrieval engine for verified, bulletproof facts."""
 
     @classmethod
-    def find_fact(cls, raw_text: str, domain: Optional[str] = None, clean_topic: Optional[str] = None) -> FactCapsule:
+    def find_fact(
+        cls,
+        raw_text: str,
+        domain: Optional[str] = None,
+        clean_topic: Optional[str] = None,
+        raise_on_missing: bool = False,
+    ) -> FactCapsule:
         """Find the most relevant FactCapsule based on text keywords or domain, falling back gracefully."""
         text_lower = raw_text.lower()
         if clean_topic:
@@ -203,24 +214,11 @@ class KnowledgeBank:
         if best_match and best_score >= 2:
             return best_match
 
-        # If text clearly looks like a specific topic not in catalog, construct a clean dynamic capsule
-        clean_top = (clean_topic or raw_text).strip().rstrip(".,;:?!")
-        # Ensure clean_top doesn't carry request prefixes
-        clean_top = re.sub(r"^(?:un dato curioso sobre|un dato sobre|algo sobre|curiosidad sobre)\s+", "", clean_top, flags=re.IGNORECASE).strip()
-        if clean_top and len(clean_top) < 80:
-            return FactCapsule(
-                id="dynamic_custom",
-                domain=domain or "general",
-                topic=clean_top[0].upper() + clean_top[1:] if len(clean_top) > 1 else clean_top.upper(),
-                keywords=[clean_top.lower()],
-                hook_question=f"¿Sabías que existe un hecho fascinante y comprobado sobre {clean_top.lower()}?",
-                hook_statement=f"La realidad detrás de {clean_top.lower()} es mucho más sorprendente de lo que parece.",
-                hook_surprise=f"Todo lo que creías saber sobre {clean_top.lower()} cambia cuando examinas los datos.",
-                body_segment_1=f"Al investigar a fondo {clean_top.lower()}, los expertos descubrieron patrones que transformaron su comprensión.",
-                body_segment_2=f"Este hallazgo consolidó a {clean_top.lower()} como una pieza fundamental del conocimiento moderno.",
-                cta="Descubre más historias fascinantes cada día. Sígueme para más.",
-                source_note="Documentación general.",
+        # Fail-fast: No fake canned templates ("¿Sabías que existe un hecho fascinante...")
+        if raise_on_missing:
+            raise KnowledgeNotFoundError(
+                f"No se encontró ninguna cápsula factual verificada en KnowledgeBank para '{raw_text[:60]}'"
             )
 
-        # Default guaranteed high-retention fact (First bug)
+        # Default guaranteed high-retention fact (First bug) only when explicitly non-raising
         return FACT_CATALOG[0]

@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from engine.creative.ideation_memory import BlockedReport, IdeationMemory
 from engine.creative.interpreter import CreativeInterpreter
+from engine.creative.modes import ContentModeRouter, ResolvedContentMode
 from engine.creative.models import Concept, Idea, Series
 from engine.experiments.models import Experiment, ExperimentRun, Hypothesis, Render
 from engine.experiments.repository import ExperimentRepository
@@ -226,61 +227,105 @@ class CreativeService:
             session.add(hypothesis)
             session.flush()
 
-            # Retrieve factual capsule for bulletproof consistency
-            fact = KnowledgeBank.find_fact(concept.idea.theme)
-            topic = fact.topic
-            angle = concept.angle_description
-            
-            # Detect duration constraint dynamically from raw idea input
+            # Branch compile strategy based on ContentMode (Narrative vs Factual)
+            mode = ContentModeRouter.resolve_mode(concept.idea.raw_input)
             _, target_duration = self.interpreter._extract_topic_and_constraints(concept.idea.raw_input)
+            angle = concept.angle_description
 
-            variant_plans = [
-                VariantPlan(
-                    variant_code="A",
-                    hook_type=HookType.QUESTION,
-                    target_duration_sec=target_duration,
-                    topic=topic,
-                    angle=angle,
-                    parameters={
-                        "hook_text": (
-                            concept.hook_text
-                            if concept.hook_type == HookType.QUESTION.value
-                            else fact.hook_question
-                        ),
-                        "source_concept_id": concept.id,
-                    },
-                ),
-                VariantPlan(
-                    variant_code="B",
-                    hook_type=HookType.STATEMENT,
-                    target_duration_sec=target_duration,
-                    topic=topic,
-                    angle=angle,
-                    parameters={
-                        "hook_text": (
-                            concept.hook_text
-                            if concept.hook_type == HookType.STATEMENT.value
-                            else fact.hook_statement
-                        ),
-                        "source_concept_id": concept.id,
-                    },
-                ),
-                VariantPlan(
-                    variant_code="C",
-                    hook_type=HookType.SURPRISE,
-                    target_duration_sec=target_duration,
-                    topic=topic,
-                    angle=angle,
-                    parameters={
-                        "hook_text": (
-                            concept.hook_text
-                            if concept.hook_type == HookType.SURPRISE.value
-                            else fact.hook_surprise
-                        ),
-                        "source_concept_id": concept.id,
-                    },
-                ),
-            ]
+            if mode == ResolvedContentMode.NARRATIVE_FICTION:
+                topic = concept.idea.theme
+                variant_plans = [
+                    VariantPlan(
+                        variant_code="A",
+                        hook_type=HookType.STORY_IN_MEDIAS_RES if concept.hook_type == HookType.STORY_IN_MEDIAS_RES.value else HookType.QUESTION,
+                        target_duration_sec=target_duration,
+                        topic=topic,
+                        angle=angle,
+                        parameters={
+                            "hook_text": concept.hook_text,
+                            "source_concept_id": concept.id,
+                            "content_mode": "narrative_fiction",
+                        },
+                    ),
+                    VariantPlan(
+                        variant_code="B",
+                        hook_type=HookType.STATEMENT,
+                        target_duration_sec=target_duration,
+                        topic=topic,
+                        angle=angle,
+                        parameters={
+                            "hook_text": concept.hook_text,
+                            "source_concept_id": concept.id,
+                            "content_mode": "narrative_fiction",
+                        },
+                    ),
+                    VariantPlan(
+                        variant_code="C",
+                        hook_type=HookType.SURPRISE,
+                        target_duration_sec=target_duration,
+                        topic=topic,
+                        angle=angle,
+                        parameters={
+                            "hook_text": concept.hook_text,
+                            "source_concept_id": concept.id,
+                            "content_mode": "narrative_fiction",
+                        },
+                    ),
+                ]
+            else:
+                from engine.creative.knowledge import KnowledgeBank
+                fact = KnowledgeBank.find_fact(concept.idea.theme)
+                topic = fact.topic
+                variant_plans = [
+                    VariantPlan(
+                        variant_code="A",
+                        hook_type=HookType.QUESTION,
+                        target_duration_sec=target_duration,
+                        topic=topic,
+                        angle=angle,
+                        parameters={
+                            "hook_text": (
+                                concept.hook_text
+                                if concept.hook_type == HookType.QUESTION.value
+                                else fact.hook_question
+                            ),
+                            "source_concept_id": concept.id,
+                            "content_mode": "factual_curiosity",
+                        },
+                    ),
+                    VariantPlan(
+                        variant_code="B",
+                        hook_type=HookType.STATEMENT,
+                        target_duration_sec=target_duration,
+                        topic=topic,
+                        angle=angle,
+                        parameters={
+                            "hook_text": (
+                                concept.hook_text
+                                if concept.hook_type == HookType.STATEMENT.value
+                                else fact.hook_statement
+                            ),
+                            "source_concept_id": concept.id,
+                            "content_mode": "factual_curiosity",
+                        },
+                    ),
+                    VariantPlan(
+                        variant_code="C",
+                        hook_type=HookType.SURPRISE,
+                        target_duration_sec=target_duration,
+                        topic=topic,
+                        angle=angle,
+                        parameters={
+                            "hook_text": (
+                                concept.hook_text
+                                if concept.hook_type == HookType.SURPRISE.value
+                                else fact.hook_surprise
+                            ),
+                            "source_concept_id": concept.id,
+                            "content_mode": "factual_curiosity",
+                        },
+                    ),
+                ]
 
 
             session.commit()

@@ -3,7 +3,9 @@
 from abc import ABC, abstractmethod
 from typing import Dict, List, Optional
 
+from engine.creative.modes import ContentModeRouter, ResolvedContentMode
 from engine.scripting.schema import HookType, ScriptSegment, StructuredScript, VariantPlan
+from engine.story.semantic_qa import SemanticAntiTemplateValidator
 
 
 class ScriptProvider(ABC):
@@ -24,43 +26,70 @@ class DummyScriptProvider(ScriptProvider):
     def generate_script(self, hypothesis_statement: str, plan: VariantPlan) -> StructuredScript:
         """Produce a deterministic, fully structured script based on hook_type and topic."""
         topic = plan.topic.strip()
-
-        # Deterministic hooks according to typology with priority to plan.parameters['hook_text']
-        hook_map: Dict[HookType, str] = {
-            HookType.QUESTION: f"¿Sabías que existe un misterio inexplicable sobre {topic} que la ciencia aún debate?",
-            HookType.STATEMENT: f"Este es el hecho más impactante y comprobado sobre {topic} jamás registrado.",
-            HookType.SURPRISE: f"Todo lo que te enseñaron en la escuela sobre {topic} está completamente equivocado.",
-            HookType.STORY_IN_MEDIAS_RES: f"Estábamos a punto de perderlo todo cuando descubrimos la verdad sobre {topic}.",
-        }
+        is_narrative = (
+            plan.parameters.get("content_mode") == ResolvedContentMode.NARRATIVE_FICTION.value
+            or ContentModeRouter.resolve_mode(topic) == ResolvedContentMode.NARRATIVE_FICTION
+        )
 
         custom_hook = plan.parameters.get("hook_text")
         if custom_hook and isinstance(custom_hook, str) and custom_hook.strip():
             hook = custom_hook.strip()
+        elif is_narrative:
+            narrative_hooks: Dict[HookType, str] = {
+                HookType.QUESTION: f"¿Qué harías si descubrieras un poder prohibido sobre {topic}?",
+                HookType.STATEMENT: f"Nadie estaba preparado para lo que despertaría {topic}.",
+                HookType.SURPRISE: f"Creía que era una leyenda olvidada... hasta que {topic} cobró vida frente a sus ojos.",
+                HookType.STORY_IN_MEDIAS_RES: f"El suelo temblaba y el cielo se oscurecía en el instante en que {topic} despertó.",
+            }
+            hook = narrative_hooks.get(plan.hook_type, f"En un instante todo cambió para siempre con {topic}.")
         else:
+            hook_map: Dict[HookType, str] = {
+                HookType.QUESTION: f"¿Sabías que existe un misterio inexplicable sobre {topic} que la ciencia aún debate?",
+                HookType.STATEMENT: f"Este es el hecho más impactante y comprobado sobre {topic} jamás registrado.",
+                HookType.SURPRISE: f"Todo lo que te enseñaron en la escuela sobre {topic} está completamente equivocado.",
+                HookType.STORY_IN_MEDIAS_RES: f"Estábamos a punto de perderlo todo cuando descubrimos la verdad sobre {topic}.",
+            }
             hook = hook_map.get(
                 plan.hook_type,
                 f"Presta atención a lo que sucede realmente con {topic}.",
             )
 
-
-        segments = [
-            ScriptSegment(
-                order=1,
-                text=f"Durante décadas, investigadores de todo el mundo intentaron descifrar los patrones ocultos de {topic}.",
-                duration_target_sec=plan.target_duration_sec * 0.35,
-                visual_cue="Tomas cinematográficas de archivo y diagramas de investigación en alta definición",
-                tone="curious",
-            ),
-            ScriptSegment(
-                order=2,
-                text="Los resultados revelaron una correlación directa que nadie había sido capaz de predecir hasta este momento.",
-                duration_target_sec=plan.target_duration_sec * 0.40,
-                visual_cue="Visualización de datos e infografía animada sobre fondo oscuro minimalista",
-                tone="serious",
-            ),
-        ]
-
-        cta = f"¿Tú qué opinas sobre {topic}? Déjalo en los comentarios."
+        if is_narrative:
+            segments = [
+                ScriptSegment(
+                    order=1,
+                    text="Un silencio espectral envolvió el lugar. Cada segundo aumentaba la tensión mientras la oscuridad avanzaba.",
+                    duration_target_sec=plan.target_duration_sec * 0.40,
+                    visual_cue="Plano contrapicado en bosque sombrío, relámpagos rompiendo el cielo y niebla densa",
+                    tone="dramatic",
+                ),
+                ScriptSegment(
+                    order=2,
+                    text="Con el pulso acelerado, empuñó su única defensa frente a las sombras que se alzaban para destruirlo.",
+                    duration_target_sec=plan.target_duration_sec * 0.40,
+                    visual_cue="Secuencia de acción rápida con cortes dinámicos, destello en el filo y siluetas hostiles",
+                    tone="action",
+                ),
+            ]
+            cta = "¿Logrará sobrevivir a esta pesadilla? Déjalo en los comentarios."
+        else:
+            segments = [
+                ScriptSegment(
+                    order=1,
+                    text=f"Durante décadas, investigadores de todo el mundo intentaron descifrar los patrones ocultos de {topic}.",
+                    duration_target_sec=plan.target_duration_sec * 0.35,
+                    visual_cue="Tomas cinematográficas de archivo y diagramas de investigación en alta definición",
+                    tone="curious",
+                ),
+                ScriptSegment(
+                    order=2,
+                    text="Los resultados revelaron una correlación directa que nadie había sido capaz de predecir hasta este momento.",
+                    duration_target_sec=plan.target_duration_sec * 0.40,
+                    visual_cue="Visualización de datos e infografía animada sobre fondo oscuro minimalista",
+                    tone="serious",
+                ),
+            ]
+            cta = f"¿Tú qué opinas sobre {topic}? Déjalo en los comentarios."
 
         return StructuredScript(
             title=f"Experimento {plan.variant_code} - {topic}",
@@ -74,6 +103,7 @@ class DummyScriptProvider(ScriptProvider):
                 "variant_code": plan.variant_code,
                 "hypothesis": hypothesis_statement,
                 "angle": plan.angle,
+                "content_mode": "narrative_fiction" if is_narrative else "factual_curiosity",
             },
         )
 
@@ -92,40 +122,65 @@ class ScriptwriterService:
 
 
 class SemanticScriptProvider(ScriptProvider):
-    """High-quality semantic script generator creating natural, factual spoken Spanish narratives offline."""
+    """High-quality semantic script generator creating natural, factual or narrative spoken Spanish offline."""
 
     def generate_script(self, hypothesis_statement: str, plan: VariantPlan) -> StructuredScript:
         from engine.creative.knowledge import KnowledgeBank
 
         topic = plan.topic.strip()
         custom_hook = plan.parameters.get("hook_text")
+        is_narrative = (
+            plan.parameters.get("content_mode") == ResolvedContentMode.NARRATIVE_FICTION.value
+            or ContentModeRouter.resolve_mode(topic) == ResolvedContentMode.NARRATIVE_FICTION
+        )
 
-        # Resolve verified factual capsule
-        fact = KnowledgeBank.find_fact(topic)
-
-        # 1. Resolve hook according to A/B/C canonical order or custom hook
-        hook_map: Dict[HookType, str] = {
-            HookType.QUESTION: fact.hook_question,
-            HookType.STATEMENT: fact.hook_statement,
-            HookType.SURPRISE: fact.hook_surprise,
-            HookType.STORY_IN_MEDIAS_RES: f"Todo cambió por completo cuando descubrimos la verdad sobre {fact.topic.lower()}.",
-        }
-
-        if custom_hook and isinstance(custom_hook, str) and custom_hook.strip():
-            hook = custom_hook.strip()
-        else:
-            hook = hook_map.get(plan.hook_type, fact.hook_question)
-
-        # 2. Strict Word Budget Calculation based on speech rate (~2.1 words/sec)
         target_sec = max(plan.target_duration_sec, 8.0)
-        # Allocate acoustic safety margin for pauses
         margin_sec = 1.0 if target_sec <= 12.0 else 2.0
         max_words = max(18, int((target_sec - margin_sec) * 2.1))
 
-        # 3. Factual spoken segments from verified knowledge base
-        segment1_text = fact.body_segment_1
-        segment2_text = fact.body_segment_2
-        cta = fact.cta
+        if is_narrative:
+            # Narrative storytelling branch
+            narrative_hooks: Dict[HookType, str] = {
+                HookType.QUESTION: f"¿Qué harías si al desenterrar una espada olvidada, el cielo rugiera con relámpagos oscuros?",
+                HookType.STATEMENT: f"Nadie imaginaba que aquella espada en el bosque ocultaba un poder capaz de destruir el mundo.",
+                HookType.SURPRISE: f"Creía estar solo en el bosque... hasta que las almas en el horizonte lo señalaron para matarlo.",
+                HookType.STORY_IN_MEDIAS_RES: f"Al empuñar la espada oculta en el bosque, el cielo se desgarró en relámpagos y sombras.",
+            }
+            if custom_hook and isinstance(custom_hook, str) and custom_hook.strip():
+                hook = custom_hook.strip()
+            else:
+                hook = narrative_hooks.get(plan.hook_type, narrative_hooks[HookType.STORY_IN_MEDIAS_RES])
+
+            segment1_text = "Un silencio espectral envolvió los árboles centenarios. La empuñadura vibraba con una energía que amenazaba con devorar su mente."
+            segment2_text = "En la lejanía, siluetas carroñeras emergieron entre la niebla. Su única opción era pelear o ser consumido por la oscuridad."
+            cta = "¿Logrará sobrevivir a la batalla? Sígueme para la siguiente parte."
+
+            # Lint and validate narrative integrity
+            candidate_text = f"{hook} {segment1_text} {segment2_text} {cta}"
+            SemanticAntiTemplateValidator.validate_text(
+                candidate_text,
+                mode=ResolvedContentMode.NARRATIVE_FICTION,
+                raise_on_violation=True,
+            )
+        else:
+            # Resolve verified factual capsule
+            fact = KnowledgeBank.find_fact(topic)
+
+            hook_map: Dict[HookType, str] = {
+                HookType.QUESTION: fact.hook_question,
+                HookType.STATEMENT: fact.hook_statement,
+                HookType.SURPRISE: fact.hook_surprise,
+                HookType.STORY_IN_MEDIAS_RES: f"Todo cambió por completo cuando descubrimos la verdad sobre {fact.topic.lower()}.",
+            }
+
+            if custom_hook and isinstance(custom_hook, str) and custom_hook.strip():
+                hook = custom_hook.strip()
+            else:
+                hook = hook_map.get(plan.hook_type, fact.hook_question)
+
+            segment1_text = fact.body_segment_1
+            segment2_text = fact.body_segment_2
+            cta = fact.cta
 
         # For very short durations (e.g. 10s), omit segment 2 and use compact CTA
         if target_sec <= 14.0 or max_words < 26:
@@ -155,13 +210,28 @@ class SemanticScriptProvider(ScriptProvider):
 
         total_words = len(f"{hook} {segment1_text} {segment2_text} {cta}".split())
 
+        cue1 = (
+            "Plano cinematográfico dinámico con iluminación de claroscuro y atmósfera cargada de tensión"
+            if is_narrative
+            else f"Documentación visual y archivo sobre {fact.topic}"
+        )
+        cue2 = (
+            "Corte rápido de acción, movimiento acelerado de cámara y clímax dramático"
+            if is_narrative
+            else "Visualización de datos e impacto histórico comprobado"
+        )
+        title = f"Crónica: {topic[:40]}" if is_narrative else f"Short: {fact.topic}"
+        tone1 = "dramatic" if is_narrative else "curious"
+        tone2 = "action" if is_narrative else "serious"
+        fact_id = "narrative_fiction_beat" if is_narrative else fact.id
+
         segments = [
             ScriptSegment(
                 order=1,
                 text=segment1_text,
                 duration_target_sec=round(target_sec * (0.9 if not segment2_text else 0.45), 1),
-                visual_cue=f"Documentación visual y archivo sobre {fact.topic}",
-                tone="curious",
+                visual_cue=cue1,
+                tone=tone1,
             )
         ]
         if segment2_text:
@@ -170,13 +240,13 @@ class SemanticScriptProvider(ScriptProvider):
                     order=2,
                     text=segment2_text,
                     duration_target_sec=round(target_sec * 0.45, 1),
-                    visual_cue="Visualización de datos e impacto histórico comprobado",
-                    tone="serious",
+                    visual_cue=cue2,
+                    tone=tone2,
                 )
             )
 
         return StructuredScript(
-            title=f"Short: {fact.topic}",
+            title=title,
             hook_type=plan.hook_type,
             hook=hook,
             segments=segments,
@@ -187,9 +257,10 @@ class SemanticScriptProvider(ScriptProvider):
                 "variant_code": plan.variant_code,
                 "hypothesis": hypothesis_statement,
                 "angle": plan.angle,
-                "fact_id": fact.id,
+                "fact_id": fact_id,
                 "word_count": total_words,
                 "word_budget": max_words,
+                "content_mode": "narrative_fiction" if is_narrative else "factual_curiosity",
             },
         )
 

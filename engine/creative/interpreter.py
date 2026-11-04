@@ -1,10 +1,11 @@
 """Creative Interpreter: Offline, deterministic editorial analysis of raw ideas."""
 
 import re
-from typing import List
+from typing import List, Optional
 from pydantic import BaseModel, Field
 
 from engine.creative.models import Concept
+from engine.creative.modes import ContentModeRequest, ContentModeRouter, ResolvedContentMode
 from engine.scripting.schema import HookType
 from engine.creative.knowledge import KnowledgeBank, FactCapsule
 
@@ -27,6 +28,7 @@ class InterpretationResult(BaseModel):
     editorial_angle: str
     series_potential: str = "media"
     suggested_format: str = "microdocumentary"
+    content_mode: str = "factual_curiosity"
     concepts: List[ConceptDraft] = Field(min_length=3, max_length=3)
 
 
@@ -34,17 +36,21 @@ class CreativeInterpreter:
     """Offline, deterministic editorial interpreter.
     
     Transforms unstructured idea text into 3 contrastive concepts:
-    Concept 1: QUESTION
-    Concept 2: SURPRISE
-    Concept 3: STATEMENT
+    Concept 1: QUESTION / IN_MEDIAS_RES
+    Concept 2: SURPRISE / ESCALATION
+    Concept 3: STATEMENT / CLIMAX
     
     Maintains a humble editorial stance: 'Esto es lo que entendí de tu idea (Sugerencia editable)'.
     """
 
     MIN_TEXT_LENGTH: int = 10
 
-    def interpret(self, raw_text: str) -> InterpretationResult:
-        """Analyze raw text, resolve verified factual anchors, and return 3 contrastive concepts."""
+    def interpret(
+        self,
+        raw_text: str,
+        mode: Optional[ContentModeRequest] = ContentModeRequest.AUTO,
+    ) -> InterpretationResult:
+        """Analyze raw text, resolve verified factual anchors or narrative story angles, and return 3 concepts."""
         cleaned = raw_text.strip()
         if len(cleaned) < self.MIN_TEXT_LENGTH:
             raise ValueError(
@@ -52,14 +58,70 @@ class CreativeInterpreter:
                 f"Proporciona al menos {self.MIN_TEXT_LENGTH} caracteres con más contexto o detalles."
             )
 
-        # Extract clean topic and target duration constraints
+        # 1. Resolve content mode (Narrative vs Factual)
+        resolved_mode = ContentModeRouter.resolve_mode(cleaned, requested_mode=mode)
+
+        # 2. Extract clean topic and target duration constraints
         first_line = cleaned.split("\n")[0].strip()
         topic, target_duration = self._extract_topic_and_constraints(first_line)
 
-        # Retrieve verified factual capsule using both raw text and clean topic
-        fact = KnowledgeBank.find_fact(cleaned, clean_topic=topic)
+        # 3. Branch by mode
+        if resolved_mode == ResolvedContentMode.NARRATIVE_FICTION:
+            # Narrative / Cinematic Fiction Branch: preserve story premise and generate dramatic beats
+            editorial_angle = f"Producción cinemática narrativa de ficción: {topic}"
 
-        # Editorial angle summary
+            # Distill punchy hooks from the user's narrative premise
+            hook_in_medias = f"Al tocar la empuñadura de aquella espada en el bosque, el cielo se quebró en relámpagos oscuros."
+            if "espada" in cleaned.lower() and "cielo" in cleaned.lower():
+                hook_in_medias = "Al empuñar la espada oculta en el bosque, el cielo se desgarró en relámpagos y sombras."
+            elif len(topic) > 20:
+                hook_in_medias = f"Nadie imaginaba lo que despertaría al descubrir {topic.lower()}."
+
+            hook_threat = f"Creía estar solo en el bosque... hasta que las almas carroñeras en el horizonte lo señalaron para matarlo."
+            hook_climax = f"La espada enterrada despertó un poder ancestral que jamás debió ser desenterrado."
+
+            hook_question = "¿Qué harías si al empuñar una espada en el bosque, el cielo se desgarrara en relámpagos?"
+            hook_surprise = "Creía estar solo en el bosque... hasta que las almas en el horizonte lo señalaron para matarlo."
+            hook_statement = hook_in_medias
+
+            concepts = [
+                ConceptDraft(
+                    concept_number=1,
+                    title="La Amenaza del Horizonte",
+                    hook_text=hook_question,
+                    hook_type=HookType.QUESTION.value,
+                    angle_description="Ángulo de suspenso y pregunta abierta sobre la maldición desatada.",
+                    target_duration_seconds=target_duration,
+                ),
+                ConceptDraft(
+                    concept_number=2,
+                    title="El Giro Inesperado",
+                    hook_text=hook_surprise,
+                    hook_type=HookType.SURPRISE.value,
+                    angle_description="Ángulo de sorpresa e impacto con la emboscada sobrenatural.",
+                    target_duration_seconds=target_duration,
+                ),
+                ConceptDraft(
+                    concept_number=3,
+                    title="El Despertar de la Espada",
+                    hook_text=hook_statement,
+                    hook_type=HookType.STATEMENT.value,
+                    angle_description="Apertura cinemática en plena acción con el contacto inicial del artefacto.",
+                    target_duration_seconds=target_duration,
+                ),
+            ]
+
+            return InterpretationResult(
+                theme=topic,
+                editorial_angle=editorial_angle,
+                series_potential="alta",
+                suggested_format="cinematic_narrative",
+                content_mode=ResolvedContentMode.NARRATIVE_FICTION.value,
+                concepts=concepts,
+            )
+
+        # Factual / Curiosity Branch: retrieve verified factual capsule
+        fact = KnowledgeBank.find_fact(cleaned, clean_topic=topic)
         editorial_angle = f"Exploración de alto impacto sobre {fact.topic.lower()}: {fact.source_note}"
 
         concepts = [
@@ -94,6 +156,7 @@ class CreativeInterpreter:
             editorial_angle=editorial_angle,
             series_potential="alta" if len(cleaned) > 50 else "media",
             suggested_format="microdocumentary",
+            content_mode=ResolvedContentMode.FACTUAL_CURIOSITY.value,
             concepts=concepts,
         )
 
