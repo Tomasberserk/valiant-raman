@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Creative Workspace — Studio de Contenido Corto</title>
+  <link rel="stylesheet" href="/static/css/studio.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+</head>
+<body>
+  <!-- Skip to main content link for keyboard users -->
+  <a href="#mainContent" class="skip-to-content visually-hidden">Saltar al contenido principal</a>
+
+  <!-- Background Glow & Grid -->
+  <div class="bg-glow" aria-hidden="true"></div>
+
+  <!-- Top Navigation -->
+  <header class="studio-header" role="banner">
+    <div class="header-brand">
+      <div class="brand-badge" aria-label="Versión del Studio">⚡ STUDIO v0.2</div>
+      <h1 class="brand-title">Creative Workspace</h1>
+      <span class="brand-subtitle">Motor Experimental de Contenido Corto</span>
+    </div>
+    <div class="header-actions">
+      <button id="btnBlocked" class="btn btn-ghost" type="button" aria-haspopup="dialog" aria-expanded="false" aria-controls="blockedModal" title="Ver sugerencias basadas en historial empírico">
+        <span class="icon" aria-hidden="true">✦</span> ¿Bloqueado?
+      </button>
+      <div class="engine-status-pill" role="status" aria-label="Estado del motor: Pipeline Listo">
+        <span class="status-dot" aria-hidden="true"></span>
+        <span class="status-text">Pipeline Listo</span>
+      </div>
+    </div>
+  </header>
+
+  <!-- Global Toast Notification Container -->
+  <div id="toastContainer" class="toast-container" role="region" aria-label="Notificaciones del sistema" aria-live="polite"></div>
+
+  <main id="mainContent" class="studio-container">
+    <!-- SECTION 1: INSPIRATION / BLOCKED MODAL/DRAWER -->
+    <div id="blockedModal" class="modal-overlay hidden" role="dialog" aria-modal="true" aria-labelledby="blockedModalTitle" aria-describedby="blockedFact">
+      <div class="modal-card">
+        <div class="modal-header">
+          <div class="badge badge-amber" id="blockedModalBadge">DIAGNÓSTICO EDITORIAL</div>
+          <h2 id="blockedModalTitle" class="visually-hidden">Sugerencias editoriales por bloqueo creativo</h2>
+          <button id="btnCloseBlocked" class="btn-icon" type="button" aria-label="Cerrar ventana de diagnóstico">&times;</button>
+        </div>
+        <div class="modal-body" id="blockedModalBody">
+          <div class="insight-block">
+            <span class="insight-label" id="labelBlockedFact">Dato Empírico</span>
+            <p id="blockedFact" class="insight-text" aria-labelledby="labelBlockedFact">Cargando historial...</p>
+          </div>
+          <div class="insight-block">
+            <span class="insight-label" id="labelBlockedOpportunity">Oportunidad No Explorada</span>
+            <p id="blockedOpportunity" class="insight-text" aria-labelledby="labelBlockedOpportunity">...</p>
+          </div>
+          <div class="insight-block">
+            <span class="insight-label" id="labelBlockedHypothesis">Hipótesis Sugerida</span>
+            <p id="blockedHypothesis" class="insight-text text-accent" aria-labelledby="labelBlockedHypothesis">...</p>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button id="btnUseHypothesis" class="btn btn-primary" type="button">Usar esta sugerencia</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- SECTION 2: IDEA CAPTURE -->
+    <section class="studio-section ideation-card" aria-labelledby="ideationTitle">
+      <div class="section-badge" aria-hidden="true">PASO 1 • CONCEPCIÓN</div>
+      <h2 id="ideationTitle" class="section-title">¿Qué quieres contar hoy?</h2>
+      <p id="ideationDesc" class="section-desc">Escribe una premisa, un dato asombroso, una pregunta o el tema central de tu próximo short.</p>
+
+      <div class="input-wrapper">
+        <label for="ideaInput" class="visually-hidden">Premisa, dato o tema de tu short</label>
+        <textarea id="ideaInput" class="idea-textarea" placeholder="Ej: Durante siglos se creyó que la luz viajaba a velocidad infinita hasta que un astrónomo danés observó las lunas de Júpiter..." rows="3" aria-describedby="ideationDesc charCount"></textarea>
+        
+        <div class="input-toolbar">
+          <div class="toolbar-left">
+            <button id="btnSpeech" class="btn btn-secondary btn-icon-text" type="button" title="Dictar con voz usando Web Speech API" aria-label="Dictar idea usando micrófono">
+              <span class="mic-icon" aria-hidden="true">🎙️</span> <span id="speechStatus">Dictar idea</span>
+            </button>
+            <span id="charCount" class="char-counter" aria-live="polite">0 caracteres (mín. 10)</span>
+          </div>
+
+          <button id="btnAnalyze" class="btn btn-primary btn-glow" type="button" disabled aria-label="Generar 3 conceptos editoriales">
+            <span>Generar 3 Conceptos</span>
+            <span class="btn-arrow" aria-hidden="true">→</span>
+          </button>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 3: CONCEPTS PROPOSALS -->
+    <section id="conceptsSection" class="studio-section hidden" aria-labelledby="conceptsTitle">
+      <div class="section-header-flex">
+        <div>
+          <div class="section-badge" aria-hidden="true">PASO 2 • ENFOQUE EDITORIAL</div>
+          <h2 id="conceptsTitle" class="section-title">Esto es lo que entendí de tu idea</h2>
+          <p id="conceptIdeaTheme" class="section-desc" aria-live="polite">Selecciona el ángulo que mejor conecta con tu audiencia.</p>
+        </div>
+        <button id="btnRegenerate" class="btn btn-ghost btn-sm" type="button" title="Proponer otros 3 conceptos" aria-label="Proponer otros 3 conceptos editoriales">
+          <span aria-hidden="true">↻</span> Proponer otros 3
+        </button>
+      </div>
+
+      <div id="conceptsGrid" class="concepts-grid" role="region" aria-label="Propuestas de conceptos editoriales">
+        <!-- Injected dynamically via JS -->
+      </div>
+    </section>
+
+    <!-- SECTION 4: PRODUCTION LAUNCH BAR -->
+    <section id="launchSection" class="studio-section hidden" aria-labelledby="selectedConceptTitle">
+      <div class="launch-banner">
+        <div class="launch-info">
+          <span class="launch-badge" aria-hidden="true">LISTO PARA EXPERIMENTACIÓN</span>
+          <h3 id="selectedConceptTitle" class="launch-title">Concepto seleccionado</h3>
+          <p id="selectedConceptHook" class="launch-hook">Gancho canónico</p>
+        </div>
+        <button id="btnLaunch" class="btn btn-accent btn-lg btn-glow" type="button" aria-label="Producir experimento audiovisual para el concepto seleccionado">
+          <span class="rocket-icon" aria-hidden="true">🚀</span>
+          <span>Producir Experimento A/B/C</span>
+        </button>
+      </div>
+    </section>
+
+    <!-- SECTION 5: LIVE PROGRESS MONITOR -->
+    <section id="progressSection" class="studio-section hidden" role="region" aria-labelledby="monitorStatusText">
+      <div id="networkBanner" class="network-banner hidden" role="alert" aria-live="assertive">
+        <span aria-hidden="true">⚠️</span>
+        <span id="networkBannerText">Conexión inestable. Reconectando con el pipeline...</span>
+      </div>
+
+      <div class="monitor-card">
+        <div class="monitor-header">
+          <div class="pulse-indicator">
+            <span class="pulsing-dot" aria-hidden="true"></span>
+            <span id="monitorStatusText" class="monitor-status" aria-live="polite">Ejecutando pipeline...</span>
+          </div>
+          <span id="progressPercent" class="progress-digit" aria-live="polite">0%</span>
+        </div>
+
+        <div class="progress-track" id="progressBarTrack" role="progressbar" aria-valuenow="0" aria-valuemin="0" aria-valuemax="100" aria-labelledby="monitorStatusText">
+          <div id="progressBar" class="progress-fill" style="width: 0%"></div>
+        </div>
+
+        <div class="monitor-details">
+          <p id="monitorMessage" class="monitor-message" aria-live="polite">Inicializando motor de renderizado...</p>
+          <ol class="monitor-stages" role="list" aria-label="Etapas de producción audiovisual">
+            <li id="stageScript" class="stage-tag" role="listitem">1. Guión</li>
+            <li id="stageVoice" class="stage-tag" role="listitem">2. Voz</li>
+            <li id="stageSubtitles" class="stage-tag" role="listitem">3. Subtítulos</li>
+            <li id="stageRender" class="stage-tag" role="listitem">4. Render FFmpeg</li>
+            <li id="stageQA" class="stage-tag" role="listitem">5. Control QA</li>
+          </ol>
+        </div>
+
+        <div id="monitorFailureActions" class="hidden" style="margin-top: 1rem; display: flex; gap: 1rem; flex-wrap: wrap;">
+          <button id="btnReturnToStudio" class="btn btn-primary" type="button">Volver al Estudio</button>
+          <button id="btnRestartExperiment" class="btn btn-secondary" type="button">Crear Nuevo Experimento</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- SECTION 6: RESULTS & VIDEO PLAYERS -->
+    <section id="resultsSection" class="studio-section hidden" role="region" aria-labelledby="resultsTitle">
+      <div class="section-header-flex">
+        <div>
+          <div class="section-badge badge-green" aria-hidden="true">PASO 3 • RESULTADOS EXPERIMENTALES</div>
+          <h2 id="resultsTitle" class="section-title">Videos Generados & Listos para Publicar</h2>
+          <p class="section-desc">Tres variantes idénticas en cuerpo narrativo, contrastadas en su tipología de gancho inicial.</p>
+        </div>
+        <button id="btnNewIdea" class="btn btn-secondary btn-sm" type="button" aria-label="Crear nuevo experimento">
+          <span aria-hidden="true">+</span> Nueva Idea
+        </button>
+      </div>
+
+      <div id="variantsGrid" class="variants-grid" role="region" aria-label="Variantes de video generadas">
+        <!-- Injected dynamically via JS: Video Players for A, B, C -->
+      </div>
+    </section>
+  </main>
+
+  <footer class="studio-footer" role="contentinfo">
+    <p>Valiant Raman Creative Engine • Trazabilidad Relacional SQLite • FFmpeg H.264 / AAC 1080x1920</p>
+  </footer>
+
+  <script src="/static/js/studio.js"></script>
+</body>
+</html>
