@@ -11,6 +11,7 @@ Enforces:
 """
 
 from enum import Enum
+import re
 from typing import List, Optional
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
@@ -190,6 +191,17 @@ class Storyboard(BaseModel):
     def total_physical_duration(self) -> float:
         """Total duration computed across all scenes and shots."""
         return round(sum(s.duration_sec for s in self.scenes), 2)
+
+    @property
+    def total_duration_sec(self) -> float:
+        """Alias for total_physical_duration."""
+        return self.total_physical_duration
+
+    @property
+    def id(self) -> str:
+        """Deterministic storyboard identifier derived from title and duration."""
+        clean_title = re.sub(r"[^\w\s-]", "", self.title).strip().lower().replace(" ", "_")
+        return f"sb_{clean_title[:24]}_{int(self.target_duration_sec)}s"
 
     @model_validator(mode="after")
     def validate_storyboard_budget_and_continuity(self):

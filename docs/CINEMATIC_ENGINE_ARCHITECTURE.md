@@ -38,16 +38,20 @@ A partir de la auditoría de código tras la falla en prompts narrativos de acci
 - `engine/story/timeline_assembler.py`: Ensamblador de línea de tiempo con concatenación de tomas e inyección de audio master en MP4.
 - Verificación: 15/15 tests pasando en `tests/test_golden_narrative.py`, `tests/test_storyboard_contracts.py` y `tests/test_thin_slice_pipeline.py`.
 
-### Fase 2: Visual Orchestrator & Asset Generation (EN PROCESO)
-- Protocolo `ImageProvider` extensible (`MockImageProvider`, `ComfyUIProvider`, `FluxProvider`, `DallEProvider`).
-- Inyección obligatoria de `CharacterAnchor` en el `action_prompt_en` de cada toma para mantener consistencia visual.
-- Caché de tomas (`shot_id` + hash del prompt) para renderizado idempotente y reanudable.
+### Fase 2: Visual Orchestrator & Asset Generation (COMPLETADA)
+- `engine/visual/providers.py`: Protocolo `ImageProvider` extensible (`MockImageProvider`, `ProceduralCanvasProvider`, `OpenAIImageProvider`, `ComfyUIProvider`).
+- Inyección canónica de `CharacterAnchor` en el `action_prompt_en` de cada toma garantizando consistencia visual y de estilo.
+- `engine/visual/cache.py`: Caché de tomas (`VisualAssetCache`) con hash SHA256 para renderizado idempotente y preservación de cuota.
+- `engine/visual/orchestrator.py`: Orquestación multi-toma generando keyframes y renders de cámara Ken-Burns.
+- Verificación: 5/5 tests pasando en `tests/test_visual_orchestrator.py`.
 
-### Fase 3: Audio Director & Sidechain Ducking
-- Generación de SFX (`sound_tag` mapeado a librería de efectos local / procedimental).
-- Mezcla multipista en FFmpeg (`sidechaincompress` para voz sobre BGM, `adelay` para SFX por toma).
-- Silencios dramáticos (`music_dip_start`/`music_dip_end`).
+### Fase 3: Audio Director & Sidechain Ducking (COMPLETADA)
+- `engine/audio/sfx_library.py`: Librería y sintetizador acústico procedural de efectos sonoros (`sword_blade_ring`, `thunder_crack`, `monster_screech`, `cinematic_whoosh`).
+- `engine/audio/music_director.py`: Generador de bandas sonoras atmosféricas BGM según `music_mood`.
+- `engine/audio/audio_director.py`: Mezclador de audio multipista en FFmpeg con posicionamiento milimétrico de SFX (`adelay`), atenuación de volumen (`volume_db`) y mezcla estéreo a 48kHz.
+- Verificación: 3/3 tests pasando en `tests/test_audio_director.py`.
 
-### Fase 4: Integración al Creative Service y Studio Web UI
-- Exposición de endpoints de storyboard en FastAPI.
-- Vista previa de tomas en el reproductor interactivo de variantes.
+### Fase 4: Integración al Pipeline Central & End-to-End Test (COMPLETADA)
+- `engine/pipeline.py`: Bifurcación inteligente del pipeline. Cuando `content_mode == "narrative_fiction"`, se despacha el flujo cinemático de Storyboard (planificación dramática, orquestación visual de tomas, mezcla de SFX/BGM y ensamblado de línea de tiempo con `TimelineAssembler`).
+- `tests/test_end_to_end_narrative_pipeline.py`: Prueba de integración end-to-end con el prompt de la espada, verificando captura de idea, selección de concepto narrativo, generación de las 6 tomas individuales, composición del master 9:16 y registro de render en SQLite.
+- Verificación: 24/24 tests pasando en la suite completa cinemática.

@@ -16,9 +16,13 @@ from engine.media.compositor import FFmpegCompositor
 from engine.media.subtitles import generate_ass_subtitles
 from engine.media.transcription import DummyTranscriptionProvider
 from engine.media.voice import DummyVoiceProvider
+from engine.audio.audio_director import AudioDirector
 from engine.qa.validator import MediaValidator
 from engine.scripting.schema import HookType, VariantPlan
 from engine.scripting.scriptwriter import DummyScriptProvider, ScriptProvider, ScriptwriterService
+from engine.story.storyboard_planner import StoryboardPlanner
+from engine.story.timeline_assembler import TimelineAssembler
+from engine.visual.orchestrator import VisualOrchestrator
 
 logger = logging.getLogger(__name__)
 
@@ -224,148 +228,256 @@ class ContentEnginePipeline:
                     parameters=plan.parameters,
                 )
 
-                # Script generation
-                script = self.script_provider.generate_script(
-                    hypothesis_statement=f"Hypothesis {hypothesis_id}",
-                    plan=plan,
-                )
+                # Check if this variant is narrative fiction or factual curiosity
+                is_narrative = (plan.parameters or {}).get("content_mode") == "narrative_fiction"
 
-                variant_work_dir = out_base / f"run_{run.id[:8]}" / f"variant_{plan.variant_code}"
-                variant_work_dir.mkdir(parents=True, exist_ok=True)
+                if is_narrative:
+                    # =========================================================================
+                    # CINEMATIC MULTI-SHOT STORYBOARD PIPELINE (Phases 1-3)
+                    # =========================================================================
+                    variant_work_dir = out_base / f"run_{run.id[:8]}" / f"variant_{plan.variant_code}"
+                    variant_work_dir.mkdir(parents=True, exist_ok=True)
 
-                # Audio generation
-                audio_file = variant_work_dir / "voiceover.wav"
-                vocal_text = script.full_text()
-                audio_result = self.voice_provider.generate_audio(
-                    text=vocal_text,
-                    voice_id="default_offline",
-                    output_path=audio_file,
-                )
-
-                # Register audio asset with provenance
-                voice_asset = self.repo.register_asset(
-                    asset_type="audio",
-                    source=f"synthesizer:{audio_result.provider}:{audio_result.voice_id}",
-                    license_name="Synthetic Audio Internal",
-                    creator=audio_result.provider,
-                    allowed_platforms="all",
-                    attribution_required=False,
-                    metadata={"duration": audio_result.duration_seconds},
-                )
-
-                # Word timestamps alignment
-                import inspect
-                sig = inspect.signature(self.transcription_provider.transcribe)
-                if "duration_seconds" in sig.parameters or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
-                    timestamps = self.transcription_provider.transcribe(
-                        audio_path=audio_file,
-                        reference_text=vocal_text,
-                        duration_seconds=audio_result.duration_seconds,
+                    # 1. Storyboard Planning
+                    planner = StoryboardPlanner()
+                    narrative_prompt = (
+                        (plan.parameters or {}).get("narrative_premise")
+                        or (plan.parameters or {}).get("hook_text")
+                        or plan.topic
+                        or plan.angle
+                        or "Narrative Action Sequence"
                     )
+                    target_dur = float(plan.target_duration_sec or 25.0)
+                    storyboard = planner.plan_storyboard(
+                        raw_prompt=narrative_prompt,
+                        target_duration_sec=target_dur,
+                    )
+
+                    # Save storyboard manifest
+                    sb_json_path = variant_work_dir / "storyboard.json"
+                    with open(sb_json_path, "w", encoding="utf-8") as f:
+                        f.write(storyboard.model_dump_json(indent=2))
+
+                    emit_progress(
+                        stage="visual_orchestration",
+                        progress_percent=int(((i + 0.3) / total_variants) * 100),
+                        message=f"Generando tomas visuales y cámara para Variante {plan.variant_code}...",
+                        current_variant=plan.variant_code,
+                        completed_variants=i,
+                    )
+
+                    # 2. Visual Orchestration
+                    visual_orchestrator = VisualOrchestrator()
+                    shot_results = visual_orchestrator.orchestrate_storyboard(
+                        storyboard=storyboard,
+                        output_dir=variant_work_dir,
+                        fps=settings.default_fps,
+                        width=settings.default_width,
+                        height=settings.default_height,
+                    )
+                    shot_dict = {r.shot_id: r for r in shot_results}
+
+                    emit_progress(
+                        stage="audio_direction",
+                        progress_percent=int(((i + 0.6) / total_variants) * 100),
+                        message=f"Mezclando diseño sonoro (SFX + BGM) para Variante {plan.variant_code}...",
+                        current_variant=plan.variant_code,
+                        completed_variants=i,
+                    )
+
+                    # 3. Audio Direction
+                    audio_director = AudioDirector(voice_provider=self.voice_provider)
+                    master_audio = variant_work_dir / "master_audio.wav"
+                    audio_director.mix_storyboard_audio(storyboard, master_audio)
+
+                    emit_progress(
+                        stage="rendering",
+                        progress_percent=int(((i + 0.8) / total_variants) * 100),
+                        message=f"Ensamblando timeline cinemático para Variante {plan.variant_code}...",
+                        current_variant=plan.variant_code,
+                        completed_variants=i,
+                    )
+
+                    # 4. Master Timeline Assembly
+                    final_video_file = variant_work_dir / f"final_variant_{plan.variant_code}.mp4"
+                    render_start_time = time.time()
+                    TimelineAssembler.assemble_storyboard_video(
+                        storyboard=storyboard,
+                        shot_results=shot_dict,
+                        output_master_path=final_video_file,
+                        voiceover_audio_path=master_audio,
+                    )
+                    render_elapsed = round(time.time() - render_start_time, 2)
+
+                    # 5. QA Verification
+                    actual_duration = storyboard.total_physical_duration
+                    qa_report = self.validator.validate_render(
+                        file_path=final_video_file,
+                        expected_duration_sec=actual_duration,
+                    )
+
+                    file_size = final_video_file.stat().st_size if final_video_file.exists() else 0
+                    render_entity = self.repo.register_render(
+                        experiment_run_id=run.id,
+                        variant_id=var_entity.id,
+                        file_path=str(final_video_file),
+                        duration_seconds=actual_duration,
+                        width=settings.default_width,
+                        height=settings.default_height,
+                        fps=float(settings.default_fps),
+                        codec=self.compositor.video_codec if hasattr(self.compositor, "video_codec") else "h264",
+                        file_size_bytes=file_size,
+                        render_time_seconds=render_elapsed,
+                        qa_passed=qa_report.passed,
+                        qa_report=qa_report.to_dict(),
+                    )
+                    self.repo.link_asset_to_render(render_entity.id, bg_asset.id, "cinematic_multishot_storyboard")
                 else:
-                    timestamps = self.transcription_provider.transcribe(
-                        audio_path=audio_file,
-                        reference_text=vocal_text,
+                    # =========================================================================
+                    # FACTUAL CURIOSITY PROCEDURAL PIPELINE
+                    # =========================================================================
+                    # Script generation
+                    script = self.script_provider.generate_script(
+                        hypothesis_statement=f"Hypothesis {hypothesis_id}",
+                        plan=plan,
                     )
 
-                # Subtitles (.ass) generation with kinetic active-word highlighting
-                subtitles_file = variant_work_dir / "subtitles.ass"
-                generate_ass_subtitles(
-                    timestamps=timestamps,
-                    output_path=subtitles_file,
-                    font_name="Arial",
-                    font_size=56,
-                    style_preset="capcut_yellow",
-                    enable_kinetic_highlight=True,
-                )
+                    variant_work_dir = out_base / f"run_{run.id[:8]}" / f"variant_{plan.variant_code}"
+                    variant_work_dir.mkdir(parents=True, exist_ok=True)
 
-                # Background video generation (Thematic B-roll or Procedural fallback)
-                bg_file = variant_work_dir / "background.mp4"
-                if hasattr(self.compositor, "generate_procedural_background"):
-                    self.compositor.generate_procedural_background(
-                        output_path=bg_file,
+                    # Audio generation
+                    audio_file = variant_work_dir / "voiceover.wav"
+                    vocal_text = script.full_text()
+                    audio_result = self.voice_provider.generate_audio(
+                        text=vocal_text,
+                        voice_id="default_offline",
+                        output_path=audio_file,
+                    )
+
+                    # Register audio asset with provenance
+                    voice_asset = self.repo.register_asset(
+                        asset_type="audio",
+                        source=f"synthesizer:{audio_result.provider}:{audio_result.voice_id}",
+                        license_name="Synthetic Audio Internal",
+                        creator=audio_result.provider,
+                        allowed_platforms="all",
+                        attribution_required=False,
+                        metadata={"duration": audio_result.duration_seconds},
+                    )
+
+                    # Word timestamps alignment
+                    import inspect
+                    sig = inspect.signature(self.transcription_provider.transcribe)
+                    if "duration_seconds" in sig.parameters or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values()):
+                        timestamps = self.transcription_provider.transcribe(
+                            audio_path=audio_file,
+                            reference_text=vocal_text,
+                            duration_seconds=audio_result.duration_seconds,
+                        )
+                    else:
+                        timestamps = self.transcription_provider.transcribe(
+                            audio_path=audio_file,
+                            reference_text=vocal_text,
+                        )
+
+                    # Subtitles (.ass) generation with kinetic active-word highlighting
+                    subtitles_file = variant_work_dir / "subtitles.ass"
+                    generate_ass_subtitles(
+                        timestamps=timestamps,
+                        output_path=subtitles_file,
+                        font_name="Arial",
+                        font_size=56,
+                        style_preset="capcut_yellow",
+                        enable_kinetic_highlight=True,
+                    )
+
+                    # Background video generation (Thematic B-roll or Procedural fallback)
+                    bg_file = variant_work_dir / "background.mp4"
+                    if hasattr(self.compositor, "generate_procedural_background"):
+                        self.compositor.generate_procedural_background(
+                            output_path=bg_file,
+                            duration_seconds=audio_result.duration_seconds,
+                            width=settings.default_width,
+                            height=settings.default_height,
+                            fps=settings.default_fps,
+                            topic=plan.topic,
+                        )
+
+                    # Optional local BGM audio track discovery
+                    bgm_file = None
+                    bgm_dir = settings.assets_dir / "audio" / "bgm"
+                    if bgm_dir.exists() and bgm_dir.is_dir():
+                        candidate_bgm = sorted(list(bgm_dir.glob("*.mp3")) + list(bgm_dir.glob("*.wav")))
+                        if candidate_bgm:
+                            bgm_file = candidate_bgm[0]
+
+                    # Rendering milestone
+                    emit_progress(
+                        stage="rendering",
+                        progress_percent=int(((i + 0.5) / total_variants) * 100),
+                        message=f"Componiendo y renderizando video para Variante {plan.variant_code} ({i+1}/{total_variants})...",
+                        current_variant=plan.variant_code,
+                        completed_variants=i,
+                    )
+
+                    # Composition and final video render
+                    final_video_file = variant_work_dir / f"final_variant_{plan.variant_code}.mp4"
+                    render_start_time = time.time()
+
+                    comp_sig = inspect.signature(self.compositor.compose_video)
+                    compose_kwargs = {}
+                    if "bgm_path" in comp_sig.parameters or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in comp_sig.parameters.values()):
+                        compose_kwargs["bgm_path"] = bgm_file
+                        compose_kwargs["bgm_volume"] = 0.12
+
+                    self.compositor.compose_video(
+                        background_path=bg_file,
+                        audio_path=audio_file,
+                        subtitles_path=subtitles_file,
+                        output_path=final_video_file,
+                        duration_seconds=audio_result.duration_seconds,
+                        **compose_kwargs,
+                    )
+                    render_elapsed = round(time.time() - render_start_time, 2)
+
+                    # QA Verification
+                    qa_report = self.validator.validate_render(
+                        file_path=final_video_file,
+                        expected_duration_sec=audio_result.duration_seconds,
+                        subtitles_path=subtitles_file,
+                    )
+
+                    # Persist render record
+                    file_size = final_video_file.stat().st_size if final_video_file.exists() else 0
+                    render_entity = self.repo.register_render(
+                        experiment_run_id=run.id,
+                        variant_id=var_entity.id,
+                        file_path=str(final_video_file),
                         duration_seconds=audio_result.duration_seconds,
                         width=settings.default_width,
                         height=settings.default_height,
-                        fps=settings.default_fps,
-                        topic=plan.topic,
+                        fps=float(settings.default_fps),
+                        codec=self.compositor.video_codec if hasattr(self.compositor, "video_codec") else "h264",
+                        file_size_bytes=file_size,
+                        render_time_seconds=render_elapsed,
+                        qa_passed=qa_report.passed,
+                        qa_report=qa_report.to_dict(),
                     )
 
-                # Optional local BGM audio track discovery
-                bgm_file = None
-                bgm_dir = settings.assets_dir / "audio" / "bgm"
-                if bgm_dir.exists() and bgm_dir.is_dir():
-                    candidate_bgm = sorted(list(bgm_dir.glob("*.mp3")) + list(bgm_dir.glob("*.wav")))
-                    if candidate_bgm:
-                        bgm_file = candidate_bgm[0]
-
-                # Rendering milestone
-                emit_progress(
-                    stage="rendering",
-                    progress_percent=int(((i + 0.5) / total_variants) * 100),
-                    message=f"Componiendo y renderizando video para Variante {plan.variant_code} ({i+1}/{total_variants})...",
-                    current_variant=plan.variant_code,
-                    completed_variants=i,
-                )
-
-                # Composition and final video render
-                final_video_file = variant_work_dir / f"final_variant_{plan.variant_code}.mp4"
-                render_start_time = time.time()
-
-                comp_sig = inspect.signature(self.compositor.compose_video)
-                compose_kwargs = {}
-                if "bgm_path" in comp_sig.parameters or any(p.kind == inspect.Parameter.VAR_KEYWORD for p in comp_sig.parameters.values()):
-                    compose_kwargs["bgm_path"] = bgm_file
-                    compose_kwargs["bgm_volume"] = 0.12
-
-                self.compositor.compose_video(
-                    background_path=bg_file,
-                    audio_path=audio_file,
-                    subtitles_path=subtitles_file,
-                    output_path=final_video_file,
-                    duration_seconds=audio_result.duration_seconds,
-                    **compose_kwargs,
-                )
-                render_elapsed = round(time.time() - render_start_time, 2)
-
-                # QA Verification
-                qa_report = self.validator.validate_render(
-                    file_path=final_video_file,
-                    expected_duration_sec=audio_result.duration_seconds,
-                    subtitles_path=subtitles_file,
-                )
-
-                # Persist render record
-                file_size = final_video_file.stat().st_size if final_video_file.exists() else 0
-                render_entity = self.repo.register_render(
-                    experiment_run_id=run.id,
-                    variant_id=var_entity.id,
-                    file_path=str(final_video_file),
-                    duration_seconds=audio_result.duration_seconds,
-                    width=settings.default_width,
-                    height=settings.default_height,
-                    fps=float(settings.default_fps),
-                    codec=self.compositor.video_codec if hasattr(self.compositor, "video_codec") else "h264",
-                    file_size_bytes=file_size,
-                    render_time_seconds=render_elapsed,
-                    qa_passed=qa_report.passed,
-                    qa_report=qa_report.to_dict(),
-                )
-
-                # Link provenance assets to this specific render
-                self.repo.link_asset_to_render(render_entity.id, bg_asset.id, "background_video")
-                self.repo.link_asset_to_render(render_entity.id, voice_asset.id, "voiceover")
-                self.repo.link_asset_to_render(render_entity.id, font_asset.id, "subtitle_font")
-                if bgm_file is not None:
-                    bgm_asset = self.repo.register_asset(
-                        asset_type="audio",
-                        source=f"local:bgm:{bgm_file.name}",
-                        license_name="Royalty Free / Local Asset",
-                        creator="Valiant Raman Sound Library",
-                        allowed_platforms="all",
-                        attribution_required=False,
-                    )
-                    self.repo.link_asset_to_render(render_entity.id, bgm_asset.id, "background_music")
+                    # Link provenance assets to this specific render
+                    self.repo.link_asset_to_render(render_entity.id, bg_asset.id, "background_video")
+                    self.repo.link_asset_to_render(render_entity.id, voice_asset.id, "voiceover")
+                    self.repo.link_asset_to_render(render_entity.id, font_asset.id, "subtitle_font")
+                    if bgm_file is not None:
+                        bgm_asset = self.repo.register_asset(
+                            asset_type="audio",
+                            source=f"local:bgm:{bgm_file.name}",
+                            license_name="Royalty Free / Local Asset",
+                            creator="Valiant Raman Sound Library",
+                            allowed_platforms="all",
+                            attribution_required=False,
+                        )
+                        self.repo.link_asset_to_render(render_entity.id, bgm_asset.id, "background_music")
 
                 completed_renders.append(render_entity)
 
